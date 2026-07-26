@@ -1,0 +1,9 @@
+[package]
+name = "comikaze"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chacha20 = { version = "0.10.1", default-features = false, features = ["rng"] }
+clap = { version = "4.6.4", features = ["derive"] }
+rand = "0.10.2"
