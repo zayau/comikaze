@@ -1,5 +1,5 @@
-use crate::frame;
 use clap::{Parser, Subcommand};
+use comikaze::frame;
 use std::path::PathBuf;
 
 /// comikaze — generate comic SVG assets: panels, balloons, captions
@@ -22,7 +22,7 @@ pub enum Commands {
         #[arg(long, default_value_t = 600, value_parser = positive_u32, allow_hyphen_values = true)]
         height: u32,
 
-        /// Stroke color (CSS color)
+        /// Stroke color (#rgb, #rgba, #rrggbb, #rrggbbaa, or currentColor)
         #[arg(long, default_value = "#000000", value_parser = parse_color)]
         color: String,
 
@@ -49,7 +49,7 @@ fn positive_f64(s: &str) -> Result<f64, String> {
         .parse()
         .map_err(|_| format!("`{s}` is not a valid number"))?;
 
-    frame::validate_stroke_width(value)?;
+    frame::validate_stroke_width(value).map_err(|error| error.to_string())?;
 
     Ok(value)
 }
@@ -66,8 +66,8 @@ fn positive_u32(s: &str) -> Result<u32, String> {
     Ok(value)
 }
 
-pub fn parse_color(s: &str) -> Result<String, String> {
-    frame::validate_color(s)?;
+fn parse_color(s: &str) -> Result<String, String> {
+    frame::validate_color(s).map_err(|error| error.to_string())?;
 
     Ok(s.to_string())
 }

@@ -2,6 +2,13 @@
 name = "comikaze"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "Generate hand-drawn comic-style SVG components from Rust or the command line"
+license = "MIT"
+repository = "https://github.com/zayau/comikaze"
+readme = "README.md"
+keywords = ["svg", "comics", "cli", "graphics"]
+categories = ["command-line-utilities", "graphics"]
 
 [dependencies]
 chacha20 = { version = "0.10.1", default-features = false, features = ["rng"] }

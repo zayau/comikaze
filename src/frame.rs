@@ -1,17 +1,92 @@
+//! Generate hand-drawn comic panel frames as SVG.
+//!
+//! Use [`crate::frame::FrameOptions`] to configure a frame and
+//! [`crate::frame::build_frame_svg`] to validate those options and generate the
+//! SVG markup.
+
 use chacha20::ChaCha12Rng;
 use rand::{RngExt, SeedableRng};
+use std::fmt;
 
 type FrameRng = ChaCha12Rng;
 
 const EDGE_JITTER: f64 = 1.0;
 const EDGE_INTERIOR_POINTS: usize = 4;
 
+/// An error produced while validating or generating a frame.
+#[derive(Debug, Clone)]
+pub enum FrameError {
+    /// The stroke width is zero, negative, infinite, or not a number.
+    InvalidStrokeWidth {
+        /// The invalid stroke width.
+        stroke_width: f64,
+    },
+    /// The stroke color is not one of the supported SVG color forms.
+    InvalidColor {
+        /// The invalid color string.
+        color: String,
+    },
+    /// The requested dimensions cannot contain the configured stroke and jitter.
+    DimensionsTooSmall {
+        /// The requested width in pixels.
+        width: u32,
+        /// The requested height in pixels.
+        height: u32,
+        /// The requested stroke width in pixels.
+        stroke_width: f64,
+        /// The exclusive minimum width and height for this stroke width.
+        minimum_size: f64,
+    },
+}
+
+impl fmt::Display for FrameError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidStrokeWidth { stroke_width } => {
+                write!(
+                    formatter,
+                    "stroke width must be a finite number greater than 0, got {stroke_width}"
+                )
+            }
+            Self::InvalidColor { color } => {
+                write!(
+                    formatter,
+                    "`{color}` is not a valid color — use a hex code (#rgb, #rrggbb, #rrggbbaa) or `currentColor`"
+                )
+            }
+            Self::DimensionsTooSmall {
+                width,
+                height,
+                stroke_width,
+                minimum_size,
+            } => {
+                write!(
+                    formatter,
+                    "width and height must each be greater than {minimum_size:.1}px at stroke-width {stroke_width} — got {width}x{height}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for FrameError {}
+
+/// Options used to generate a comic panel frame.
+///
+/// The default frame is 400 by 600 pixels with a three-pixel black stroke and
+/// a randomly generated wobble. Set [`seed`](Self::seed) to reproduce a frame.
 #[derive(Debug, Clone)]
 pub struct FrameOptions {
+    /// The SVG width in pixels.
     pub width: u32,
+    /// The SVG height in pixels.
     pub height: u32,
+    /// The stroke color as `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, or
+    /// `currentColor`.
     pub color: String,
+    /// The stroke width in pixels.
     pub stroke_width: f64,
+    /// An optional seed for reproducible output.
     pub seed: Option<u64>,
 }
 
@@ -28,7 +103,13 @@ impl Default for FrameOptions {
 }
 
 impl FrameOptions {
-    pub fn validate(&self) -> Result<(), String> {
+    /// Validates the options without generating SVG output.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`FrameError`] when the stroke width or color is invalid, or
+    /// when the dimensions cannot contain the configured stroke and jitter.
+    pub fn validate(&self) -> Result<(), FrameError> {
         validate_frame_dimensions(self.width, self.height, self.stroke_width)?;
         validate_color(&self.color)?;
 
@@ -36,24 +117,36 @@ impl FrameOptions {
     }
 }
 
-pub fn validate_stroke_width(stroke_width: f64) -> Result<(), String> {
+/// Validates a frame stroke width.
+///
+/// # Errors
+///
+/// Returns [`FrameError::InvalidStrokeWidth`] unless `stroke_width` is finite
+/// and greater than zero.
+pub fn validate_stroke_width(stroke_width: f64) -> Result<(), FrameError> {
     if !stroke_width.is_finite() || stroke_width <= 0.0 {
-        return Err(format!(
-            "stroke width must be a finite number greater than 0, got {stroke_width}"
-        ));
+        return Err(FrameError::InvalidStrokeWidth { stroke_width });
     }
 
     Ok(())
 }
 
-pub fn validate_color(color: &str) -> Result<(), String> {
+/// Validates a supported SVG stroke color.
+///
+/// Accepted values are `currentColor` and three-, four-, six-, or eight-digit
+/// hexadecimal colors.
+///
+/// # Errors
+///
+/// Returns [`FrameError::InvalidColor`] when `color` is unsupported.
+pub fn validate_color(color: &str) -> Result<(), FrameError> {
     if color == "currentColor" || is_valid_hex_color(color) {
         return Ok(());
     }
 
-    Err(format!(
-        "`{color}` is not a valid color — use a hex code (#rgb, #rrggbb, #rrggbbaa) or `currentColor`"
-    ))
+    Err(FrameError::InvalidColor {
+        color: color.to_string(),
+    })
 }
 
 fn is_valid_hex_color(color: &str) -> bool {
@@ -69,7 +162,17 @@ fn is_valid_hex_color(color: &str) -> bool {
     valid_length && valid_characters
 }
 
-pub fn validate_frame_dimensions(width: u32, height: u32, stroke_width: f64) -> Result<(), String> {
+/// Validates that frame dimensions can contain the stroke and edge jitter.
+///
+/// # Errors
+///
+/// Returns [`FrameError::InvalidStrokeWidth`] for an invalid stroke width or
+/// [`FrameError::DimensionsTooSmall`] when either dimension is too small.
+pub fn validate_frame_dimensions(
+    width: u32,
+    height: u32,
+    stroke_width: f64,
+) -> Result<(), FrameError> {
     validate_stroke_width(stroke_width)?;
 
     let margin = EDGE_JITTER + stroke_width / 2.0;
@@ -77,9 +180,12 @@ pub fn validate_frame_dimensions(width: u32, height: u32, stroke_width: f64) -> 
     let min_size = margin * 2.0 + minimum_inner_span;
 
     if (width as f64) <= min_size || (height as f64) <= min_size {
-        return Err(format!(
-            "width and height must each be greater than {min_size:.1}px at stroke-width {stroke_width} — got {width}x{height}"
-        ));
+        return Err(FrameError::DimensionsTooSmall {
+            width,
+            height,
+            stroke_width,
+            minimum_size: min_size,
+        });
     }
 
     Ok(())
@@ -160,7 +266,32 @@ fn wobbly_edge(
     out
 }
 
-pub fn build_frame_svg(options: &FrameOptions) -> Result<String, String> {
+/// Builds a validated comic panel frame as a complete SVG document.
+///
+/// Supplying the same seed and options produces the same SVG output.
+///
+/// # Errors
+///
+/// Returns a [`FrameError`] when any option is invalid.
+///
+/// # Examples
+///
+/// ```
+/// use comikaze::frame::{FrameOptions, build_frame_svg};
+///
+/// let options = FrameOptions {
+///     width: 300,
+///     height: 400,
+///     seed: Some(42),
+///     ..FrameOptions::default()
+/// };
+///
+/// let svg = build_frame_svg(&options)?;
+/// assert!(svg.starts_with("<svg"));
+///
+/// # Ok::<(), comikaze::frame::FrameError>(())
+/// ```
+pub fn build_frame_svg(options: &FrameOptions) -> Result<String, FrameError> {
     options.validate()?;
 
     let width = options.width;
@@ -363,5 +494,43 @@ mod tests {
         ];
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn invalid_stroke_width_returns_typed_error() {
+        let error = validate_stroke_width(f64::NAN).unwrap_err();
+
+        match error {
+            FrameError::InvalidStrokeWidth { stroke_width } => {
+                assert!(stroke_width.is_nan());
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn invalid_color_returns_typed_error() {
+        let error = validate_color("red").unwrap_err();
+
+        match error {
+            FrameError::InvalidColor { color } => {
+                assert_eq!(color, "red");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn invalid_dimensions_return_typed_error() {
+        let error = validate_frame_dimensions(6, 6, 3.0).unwrap_err();
+
+        assert!(matches!(
+            error,
+            FrameError::DimensionsTooSmall {
+                width: 6,
+                height: 6,
+                ..
+            }
+        ));
     }
 }

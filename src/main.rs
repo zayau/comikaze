@@ -1,8 +1,21 @@
-use clap::Parser;
-use comikaze::cli::{Cli, Commands};
-use comikaze::frame;
+mod cli;
 
-fn main() {
+use clap::Parser;
+use cli::{Cli, Commands};
+use comikaze::frame;
+use std::process::ExitCode;
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(message) => {
+            eprintln!("error: {message}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<(), String> {
     let cli = Cli::parse();
 
     match cli.command {
@@ -22,26 +35,21 @@ fn main() {
                 seed,
             };
 
-            let svg = match frame::build_frame_svg(&options) {
-                Ok(svg) => svg,
-                Err(message) => {
-                    eprintln!("error: {message}");
-                    std::process::exit(1);
-                }
-            };
+            let svg = frame::build_frame_svg(&options).map_err(|error| error.to_string())?;
 
             match output {
                 Some(path) => {
-                    if let Err(e) = std::fs::write(&path, svg) {
-                        eprintln!("error: failed to write {}: {e}", path.display());
-                        std::process::exit(1);
-                    }
+                    std::fs::write(&path, svg)
+                        .map_err(|error| format!("failed to write {}: {error}", path.display()))?;
+
                     println!("wrote {}", path.display());
                 }
                 None => println!("{svg}"),
             }
+
+            Ok(())
         }
-        Commands::Balloon => println!("balloon: not yet implemented"),
-        Commands::Caption => println!("caption: not yet implemented"),
+        Commands::Balloon => Err("balloon generation is not implemented yet".to_string()),
+        Commands::Caption => Err("caption generation is not implemented yet".to_string()),
     }
 }
