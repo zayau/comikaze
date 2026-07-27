@@ -5,5 +5,14 @@
 
 #![warn(missing_docs)]
 
+mod hand_drawn;
+mod svg;
+
 /// Comic panel frame generation.
 pub mod frame;
+
+/// Fundamental two-dimensional geometry types.
+pub mod geometry;
+
+/// Page-level comic panel layout generation.
+pub mod layout;

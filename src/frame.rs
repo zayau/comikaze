@@ -4,8 +4,11 @@
 //! [`crate::frame::build_frame_svg`] to validate those options and generate the
 //! SVG markup.
 
+use crate::geometry::Polygon;
+use crate::hand_drawn::hand_drawn_polygon;
+use crate::svg::{closed_path_data, is_valid_color, is_valid_stroke_width};
 use chacha20::ChaCha12Rng;
-use rand::{RngExt, SeedableRng};
+use rand::SeedableRng;
 use std::fmt;
 
 type FrameRng = ChaCha12Rng;
@@ -124,7 +127,7 @@ impl FrameOptions {
 /// Returns [`FrameError::InvalidStrokeWidth`] unless `stroke_width` is finite
 /// and greater than zero.
 pub fn validate_stroke_width(stroke_width: f64) -> Result<(), FrameError> {
-    if !stroke_width.is_finite() || stroke_width <= 0.0 {
+    if !is_valid_stroke_width(stroke_width) {
         return Err(FrameError::InvalidStrokeWidth { stroke_width });
     }
 
@@ -140,26 +143,13 @@ pub fn validate_stroke_width(stroke_width: f64) -> Result<(), FrameError> {
 ///
 /// Returns [`FrameError::InvalidColor`] when `color` is unsupported.
 pub fn validate_color(color: &str) -> Result<(), FrameError> {
-    if color == "currentColor" || is_valid_hex_color(color) {
+    if is_valid_color(color) {
         return Ok(());
     }
 
     Err(FrameError::InvalidColor {
         color: color.to_string(),
     })
-}
-
-fn is_valid_hex_color(color: &str) -> bool {
-    let Some(hex_digits) = color.strip_prefix('#') else {
-        return false;
-    };
-
-    let valid_length = matches!(hex_digits.len(), 3 | 4 | 6 | 8);
-    let valid_characters = hex_digits
-        .chars()
-        .all(|character| character.is_ascii_hexdigit());
-
-    valid_length && valid_characters
 }
 
 /// Validates that frame dimensions can contain the stroke and edge jitter.
@@ -203,67 +193,11 @@ fn jagged_rect_path(width: u32, height: u32, stroke_width: f64, rng: &mut FrameR
     let h = height as f64;
     let margin = EDGE_JITTER + stroke_width / 2.0;
 
-    let corners = [
-        (margin, margin),         // top-left
-        (w - margin, margin),     // top-right
-        (w - margin, h - margin), // bottom-right
-        (margin, h - margin),     // bottom-left
-    ];
+    let rectangle = Polygon::rectangle(margin, margin, w - margin, h - margin);
 
-    let mut d = format!("M {} {}", corners[0].0, corners[0].1);
+    let points = hand_drawn_polygon(&rectangle, EDGE_INTERIOR_POINTS, EDGE_JITTER, rng);
 
-    for i in 0..4 {
-        let start = corners[i];
-        let end = corners[(i + 1) % 4];
-        d.push_str(&wobbly_edge(
-            start,
-            end,
-            EDGE_INTERIOR_POINTS,
-            EDGE_JITTER,
-            rng,
-        ));
-    }
-
-    d.push_str(" Z");
-    d
-}
-
-fn wobbly_edge(
-    start: (f64, f64),
-    end: (f64, f64),
-    interior_points: usize,
-    jitter: f64,
-    rng: &mut FrameRng,
-) -> String {
-    let mut out = String::new();
-
-    let direction_x = end.0 - start.0;
-    let direction_y = end.1 - start.1;
-    let edge_length = direction_x.hypot(direction_y);
-
-    if edge_length == 0.0 {
-        out.push_str(&format!(" L {} {}", end.0, end.1));
-        return out;
-    }
-
-    let normal_x = -direction_y / edge_length;
-    let normal_y = direction_x / edge_length;
-
-    for index in 1..=interior_points {
-        let progress = index as f64 / (interior_points + 1) as f64;
-
-        let base_x = start.0 + direction_x * progress;
-        let base_y = start.1 + direction_y * progress;
-        let offset = rng.random_range(-jitter..jitter);
-
-        let x = base_x + normal_x * offset;
-        let y = base_y + normal_y * offset;
-
-        out.push_str(&format!(" L {x} {y}"));
-    }
-
-    out.push_str(&format!(" L {} {}", end.0, end.1));
-    out
+    closed_path_data(&points)
 }
 
 /// Builds a validated comic panel frame as a complete SVG document.
@@ -312,6 +246,7 @@ pub fn build_frame_svg(options: &FrameOptions) -> Result<String, FrameError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::RngExt;
 
     fn parse_coordinates(path: &str) -> Vec<f64> {
         path.split_whitespace()
@@ -365,62 +300,6 @@ mod tests {
             for coord in parse_coordinates(&path) {
                 assert!(coord >= 0.0, "found negative coordinate in: {path}");
             }
-        }
-    }
-
-    #[test]
-    fn wobbly_edge_produces_expected_segment_count() {
-        let edge = wobbly_edge(
-            (0.0, 0.0),
-            (100.0, 0.0),
-            4,
-            3.0,
-            &mut FrameRng::seed_from_u64(42),
-        );
-        assert_eq!(edge.matches(" L ").count(), 5); // 4 interior points + final corner
-    }
-
-    #[test]
-    fn horizontal_edge_does_not_jitter_along_its_direction() {
-        let edge = wobbly_edge(
-            (0.0, 0.0),
-            (100.0, 0.0),
-            4,
-            10.0,
-            &mut FrameRng::seed_from_u64(42),
-        );
-
-        let coordinates = parse_coordinates(&edge);
-        let expected_x_coordinates = [20.0, 40.0, 60.0, 80.0, 100.0];
-
-        for (point, expected_x) in coordinates.chunks_exact(2).zip(expected_x_coordinates) {
-            assert!(
-                (point[0] - expected_x).abs() < f64::EPSILON,
-                "expected x={expected_x}, found x={}",
-                point[0]
-            );
-        }
-    }
-
-    #[test]
-    fn vertical_edge_does_not_jitter_along_its_direction() {
-        let edge = wobbly_edge(
-            (0.0, 0.0),
-            (0.0, 100.0),
-            4,
-            10.0,
-            &mut FrameRng::seed_from_u64(42),
-        );
-
-        let coordinates = parse_coordinates(&edge);
-        let expected_y_coordinates = [20.0, 40.0, 60.0, 80.0, 100.0];
-
-        for (point, expected_y) in coordinates.chunks_exact(2).zip(expected_y_coordinates) {
-            assert!(
-                (point[1] - expected_y).abs() < f64::EPSILON,
-                "expected y={expected_y}, found y={}",
-                point[1]
-            );
         }
     }
 
