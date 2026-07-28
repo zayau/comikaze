@@ -2,6 +2,7 @@
 
 use crate::geometry::{Line, Point, Polygon};
 use crate::svg::{closed_path_data, is_valid_color, is_valid_stroke_width};
+use crate::topology::BoundaryGraph;
 use std::fmt;
 
 /// An error produced while creating or modifying a page layout.
@@ -66,6 +67,42 @@ pub enum LayoutError {
         /// Panel that cannot contain the gutter.
         panel_index: usize,
     },
+
+    /// The hand-drawn point spacing is invalid.
+    InvalidPointSpacing {
+        /// Invalid point spacing.
+        point_spacing: f64,
+    },
+
+    /// The hand-drawn jitter is invalid.
+    InvalidJitter {
+        /// Invalid jitter.
+        jitter: f64,
+    },
+
+    /// A hand-drawn panel boundary could not be
+    /// assembled.
+    HandDrawnRenderingFailed {
+        /// Panel that could not be rendered.
+        panel_index: usize,
+    },
+
+    /// Point spacing would generate too many
+    /// boundary points.
+    PointSpacingTooSmall {
+        /// Requested point spacing.
+        point_spacing: f64,
+    },
+
+    /// Jitter would move a boundary beyond its
+    /// available inward offset.
+    JitterTooLarge {
+        /// Requested jitter.
+        jitter: f64,
+
+        /// Maximum safe jitter.
+        maximum: f64,
+    },
 }
 
 impl fmt::Display for LayoutError {
@@ -126,11 +163,74 @@ impl fmt::Display for LayoutError {
                     "gutter {gutter} is too large for panel {panel_index}"
                 )
             }
+            Self::InvalidPointSpacing { point_spacing } => {
+                write!(
+                    formatter,
+                    "point spacing must be a finite number \
+         greater than 0, got {point_spacing}"
+                )
+            }
+            Self::InvalidJitter { jitter } => {
+                write!(
+                    formatter,
+                    "jitter must be a finite non-negative \
+         number, got {jitter}"
+                )
+            }
+            Self::HandDrawnRenderingFailed { panel_index } => {
+                write!(
+                    formatter,
+                    "could not assemble the hand-drawn \
+         boundary for panel {panel_index}"
+                )
+            }
+            Self::PointSpacingTooSmall { point_spacing } => {
+                write!(
+                    formatter,
+                    "point spacing {point_spacing} would \
+         generate too many boundary points; \
+         increase the spacing"
+                )
+            }
+            Self::JitterTooLarge { jitter, maximum } => {
+                write!(
+                    formatter,
+                    "jitter {jitter} is too large for the \
+         available panel inset; maximum is \
+         {maximum}"
+                )
+            }
         }
     }
 }
 
 impl std::error::Error for LayoutError {}
+
+/// Options controlling coordinated hand-drawn
+/// layout boundaries.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HandDrawnOptions {
+    /// Approximate maximum distance between
+    /// neighboring points along a boundary.
+    pub point_spacing: f64,
+
+    /// Maximum perpendicular displacement from
+    /// the exact boundary.
+    pub jitter: f64,
+
+    /// Seed used for reproducible boundary noise.
+    pub seed: u64,
+}
+
+impl Default for HandDrawnOptions {
+    fn default() -> Self {
+        Self {
+            point_spacing: 40.0,
+            jitter: 1.0,
+            seed: 0,
+        }
+    }
+}
 
 /// Options controlling layout SVG rendering.
 #[derive(Debug, Clone)]
@@ -141,10 +241,17 @@ pub struct LayoutSvgOptions {
     /// Panel stroke width in SVG units.
     pub stroke_width: f64,
 
-    /// Clear whitespace between neighboring panel strokes.
+    /// Clear whitespace between neighboring
+    /// panel strokes.
     ///
-    /// Zero disables gutter rendering.
+    /// Zero disables visible gutter whitespace.
     pub gutter: f64,
+
+    /// Enables coordinated hand-drawn boundaries.
+    ///
+    /// `None` preserves exact straight polygon
+    /// edges.
+    pub hand_drawn: Option<HandDrawnOptions>,
 }
 
 impl Default for LayoutSvgOptions {
@@ -153,6 +260,7 @@ impl Default for LayoutSvgOptions {
             color: "#000000".to_string(),
             stroke_width: 3.0,
             gutter: 0.0,
+            hand_drawn: None,
         }
     }
 }
@@ -280,6 +388,20 @@ pub fn build_layout_svg(
         });
     }
 
+    if let Some(hand_drawn) = &options.hand_drawn {
+        if !hand_drawn.point_spacing.is_finite() || hand_drawn.point_spacing <= 0.0 {
+            return Err(LayoutError::InvalidPointSpacing {
+                point_spacing: hand_drawn.point_spacing,
+            });
+        }
+
+        if !hand_drawn.jitter.is_finite() || hand_drawn.jitter < 0.0 {
+            return Err(LayoutError::InvalidJitter {
+                jitter: hand_drawn.jitter,
+            });
+        }
+    }
+
     let width = layout.width;
     let height = layout.height;
     let color = options.color.as_str();
@@ -287,10 +409,47 @@ pub fn build_layout_svg(
 
     let inset_distance = (options.gutter + options.stroke_width) / 2.0;
 
+    let hand_drawn_state = if let Some(hand_drawn) = &options.hand_drawn {
+        if hand_drawn.jitter > inset_distance {
+            return Err(LayoutError::JitterTooLarge {
+                jitter: hand_drawn.jitter,
+                maximum: inset_distance,
+            });
+        }
+
+        let graph = BoundaryGraph::from_panels(&layout.panels);
+
+        if !graph.supports_point_spacing(hand_drawn.point_spacing) {
+            return Err(LayoutError::PointSpacingTooSmall {
+                point_spacing: hand_drawn.point_spacing,
+            });
+        }
+
+        let profiles =
+            graph.hand_drawn_profiles(hand_drawn.point_spacing, hand_drawn.jitter, hand_drawn.seed);
+
+        Some((graph, profiles))
+    } else {
+        None
+    };
+
     let mut paths = Vec::with_capacity(layout.panels.len());
 
     for (panel_index, panel) in layout.panels.iter().enumerate() {
-        let path_data = if options.gutter == 0.0 {
+        let path_data = if let Some((graph, profiles)) = &hand_drawn_state {
+            if panel.inset(inset_distance).is_none() {
+                return Err(LayoutError::GutterTooLarge {
+                    gutter: options.gutter,
+                    panel_index,
+                });
+            }
+
+            let points = graph
+                .hand_drawn_panel_points(panel_index, panel, profiles, inset_distance)
+                .ok_or(LayoutError::HandDrawnRenderingFailed { panel_index })?;
+
+            closed_path_data(&points)
+        } else if options.gutter == 0.0 {
             closed_path_data(panel.vertices())
         } else {
             let inset = panel
@@ -533,6 +692,157 @@ mod tests {
         let options = LayoutSvgOptions {
             stroke_width: 4.0,
             gutter: 200.0,
+            ..LayoutSvgOptions::default()
+        };
+
+        assert!(matches!(
+            build_layout_svg(&layout, &options),
+            Err(LayoutError::GutterTooLarge {
+                gutter: 200.0,
+                panel_index: 0
+            })
+        ));
+    }
+
+    #[test]
+    fn invalid_hand_drawn_point_spacing_is_rejected() {
+        let layout = PageLayout::new(100, 100).unwrap();
+
+        let options = LayoutSvgOptions {
+            hand_drawn: Some(HandDrawnOptions {
+                point_spacing: 0.0,
+                ..HandDrawnOptions::default()
+            }),
+            ..LayoutSvgOptions::default()
+        };
+
+        assert!(matches!(
+            build_layout_svg(&layout, &options),
+            Err(LayoutError::InvalidPointSpacing { point_spacing: 0.0 })
+        ));
+    }
+
+    #[test]
+    fn invalid_hand_drawn_jitter_is_rejected() {
+        let layout = PageLayout::new(100, 100).unwrap();
+
+        let options = LayoutSvgOptions {
+            hand_drawn: Some(HandDrawnOptions {
+                jitter: f64::NAN,
+                ..HandDrawnOptions::default()
+            }),
+            ..LayoutSvgOptions::default()
+        };
+
+        assert!(matches!(
+            build_layout_svg(&layout, &options),
+            Err(LayoutError::InvalidJitter { jitter })
+                if jitter.is_nan()
+        ));
+    }
+
+    #[test]
+    fn hand_drawn_layout_is_seeded_and_deterministic() {
+        let mut layout = PageLayout::new(100, 100).unwrap();
+
+        layout
+            .split_panel(0, Point::new(0.0, 50.0), Point::new(100.0, 50.0))
+            .unwrap();
+
+        let options = LayoutSvgOptions {
+            stroke_width: 4.0,
+            gutter: 12.0,
+            hand_drawn: Some(HandDrawnOptions {
+                point_spacing: 20.0,
+                jitter: 2.0,
+                seed: 42,
+            }),
+            ..LayoutSvgOptions::default()
+        };
+
+        let first = build_layout_svg(&layout, &options).unwrap();
+
+        let second = build_layout_svg(&layout, &options).unwrap();
+
+        assert_eq!(first, second);
+        assert_eq!(first.matches("<path ").count(), 2);
+
+        let straight = build_layout_svg(
+            &layout,
+            &LayoutSvgOptions {
+                stroke_width: 4.0,
+                gutter: 12.0,
+                ..LayoutSvgOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert_ne!(first, straight);
+
+        let mut changed_seed = options.clone();
+
+        changed_seed
+            .hand_drawn
+            .as_mut()
+            .expect("hand drawing should be enabled")
+            .seed = 43;
+
+        let different = build_layout_svg(&layout, &changed_seed).unwrap();
+
+        assert_ne!(first, different);
+    }
+
+    #[test]
+    fn extremely_small_point_spacing_is_rejected() {
+        let layout = PageLayout::new(100, 100).unwrap();
+
+        let options = LayoutSvgOptions {
+            hand_drawn: Some(HandDrawnOptions {
+                point_spacing: 0.0001,
+                ..HandDrawnOptions::default()
+            }),
+            ..LayoutSvgOptions::default()
+        };
+
+        assert!(matches!(
+            build_layout_svg(&layout, &options),
+            Err(LayoutError::PointSpacingTooSmall {
+                point_spacing: 0.0001
+            })
+        ));
+    }
+
+    #[test]
+    fn jitter_larger_than_inset_is_rejected() {
+        let layout = PageLayout::new(100, 100).unwrap();
+
+        let options = LayoutSvgOptions {
+            stroke_width: 4.0,
+            gutter: 12.0,
+            hand_drawn: Some(HandDrawnOptions {
+                jitter: 9.0,
+                ..HandDrawnOptions::default()
+            }),
+            ..LayoutSvgOptions::default()
+        };
+
+        assert!(matches!(
+            build_layout_svg(&layout, &options),
+            Err(LayoutError::JitterTooLarge {
+                jitter: 9.0,
+                maximum: 8.0
+            })
+        ));
+    }
+
+    #[test]
+    fn collapsed_hand_drawn_panel_returns_gutter_error() {
+        let layout = PageLayout::new(100, 100).unwrap();
+
+        let options = LayoutSvgOptions {
+            stroke_width: 4.0,
+            gutter: 200.0,
+            hand_drawn: Some(HandDrawnOptions::default()),
             ..LayoutSvgOptions::default()
         };
 

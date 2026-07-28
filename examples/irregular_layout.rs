@@ -1,5 +1,5 @@
 use comikaze::geometry::Point;
-use comikaze::layout::{LayoutSvgOptions, PageLayout, build_layout_svg};
+use comikaze::layout::{HandDrawnOptions, LayoutSvgOptions, PageLayout, build_layout_svg};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut layout = PageLayout::new(600, 900)?;
@@ -24,6 +24,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &LayoutSvgOptions {
             stroke_width: 3.0,
             gutter: 12.0,
+            hand_drawn: Some(HandDrawnOptions {
+                seed: 42,
+                jitter: 0.5,
+                ..HandDrawnOptions::default()
+            }),
             ..LayoutSvgOptions::default()
         },
     )?;

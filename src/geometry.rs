@@ -1,6 +1,6 @@
 //! Fundamental two-dimensional geometry types.
 
-const GEOMETRY_EPSILON: f64 = 1e-9;
+pub(crate) const GEOMETRY_EPSILON: f64 = 1e-9;
 
 /// A point in two-dimensional SVG space.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -238,6 +238,56 @@ impl Polygon {
         area
     }
 
+    /// Returns the unit normal pointing inward from one edge.
+    pub(crate) fn edge_inward_unit_normal(&self, edge_index: usize) -> Option<(f64, f64)> {
+        let start = *self.vertices.get(edge_index)?;
+
+        let end = self.vertices[(edge_index + 1) % self.vertices.len()];
+
+        let direction_x = end.x - start.x;
+        let direction_y = end.y - start.y;
+
+        let edge_length = direction_x.hypot(direction_y);
+
+        let signed_area = self.signed_double_area();
+
+        if edge_length <= GEOMETRY_EPSILON || signed_area.abs() <= GEOMETRY_EPSILON {
+            return None;
+        }
+
+        let inward_direction = if signed_area > 0.0 { 1.0 } else { -1.0 };
+
+        Some((
+            -direction_y / edge_length * inward_direction,
+            direction_x / edge_length * inward_direction,
+        ))
+    }
+
+    /// Returns where a point projects along one polygon edge.
+    ///
+    /// Zero represents the edge's start and one represents its end.
+    pub(crate) fn edge_projection_progress(&self, edge_index: usize, point: Point) -> Option<f64> {
+        let start = *self.vertices.get(edge_index)?;
+
+        let end = self.vertices[(edge_index + 1) % self.vertices.len()];
+
+        let direction_x = end.x - start.x;
+        let direction_y = end.y - start.y;
+
+        let length_squared = direction_x * direction_x + direction_y * direction_y;
+
+        if length_squared <= GEOMETRY_EPSILON * GEOMETRY_EPSILON {
+            return None;
+        }
+
+        let point_x = point.x - start.x;
+        let point_y = point.y - start.y;
+
+        let progress = (point_x * direction_x + point_y * direction_y) / length_squared;
+
+        Some(progress)
+    }
+
     /// Creates a polygon whose edges are moved inward.
     pub(crate) fn inset(&self, distance: f64) -> Option<Self> {
         if !distance.is_finite() || distance < 0.0 {
@@ -399,5 +449,50 @@ mod tests {
         let rectangle = Polygon::rectangle(0.0, 0.0, 100.0, 80.0);
 
         assert_eq!(rectangle.inset(50.0), None);
+    }
+
+    #[test]
+    fn rectangle_edges_have_inward_unit_normals() {
+        let polygon = Polygon::rectangle(0.0, 0.0, 100.0, 50.0);
+
+        assert_eq!(polygon.edge_inward_unit_normal(0), Some((0.0, 1.0)));
+
+        assert_eq!(polygon.edge_inward_unit_normal(1), Some((-1.0, 0.0)));
+
+        assert_eq!(polygon.edge_inward_unit_normal(2), Some((0.0, -1.0)));
+
+        assert_eq!(polygon.edge_inward_unit_normal(3), Some((1.0, 0.0)));
+
+        assert_eq!(polygon.edge_inward_unit_normal(4), None);
+    }
+
+    #[test]
+    fn inward_normal_handles_reversed_vertex_order() {
+        let polygon = Polygon::new(vec![
+            Point::new(0.0, 0.0),
+            Point::new(0.0, 50.0),
+            Point::new(100.0, 50.0),
+            Point::new(100.0, 0.0),
+        ]);
+
+        assert_eq!(polygon.edge_inward_unit_normal(3), Some((0.0, 1.0)));
+    }
+
+    #[test]
+    fn inset_corners_project_onto_original_edge() {
+        let polygon = Polygon::rectangle(0.0, 0.0, 100.0, 50.0);
+
+        let inset = polygon.inset(10.0).expect("rectangle should inset");
+
+        let start_progress = polygon
+            .edge_projection_progress(0, inset.vertices()[0])
+            .expect("start corner should project");
+
+        let end_progress = polygon
+            .edge_projection_progress(0, inset.vertices()[1])
+            .expect("end corner should project");
+
+        assert_eq!(start_progress, 0.1);
+        assert_eq!(end_progress, 0.9);
     }
 }

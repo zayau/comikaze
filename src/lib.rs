@@ -7,6 +7,7 @@
 
 mod hand_drawn;
 mod svg;
+mod topology;
 
 /// Comic panel frame generation.
 pub mod frame;
