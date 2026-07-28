@@ -51,6 +51,21 @@ pub enum LayoutError {
         /// Invalid color.
         color: String,
     },
+
+    /// The requested gutter is invalid.
+    InvalidGutter {
+        /// Invalid gutter width.
+        gutter: f64,
+    },
+
+    /// The gutter would collapse a panel.
+    GutterTooLarge {
+        /// Requested gutter width.
+        gutter: f64,
+
+        /// Panel that cannot contain the gutter.
+        panel_index: usize,
+    },
 }
 
 impl fmt::Display for LayoutError {
@@ -96,6 +111,21 @@ impl fmt::Display for LayoutError {
                     "`{color}` is not a valid color — use a hex code (#rgb, #rrggbb, #rrggbbaa) or `currentColor`"
                 )
             }
+            Self::InvalidGutter { gutter } => {
+                write!(
+                    formatter,
+                    "gutter must be a finite non-negative number, got {gutter}"
+                )
+            }
+            Self::GutterTooLarge {
+                gutter,
+                panel_index,
+            } => {
+                write!(
+                    formatter,
+                    "gutter {gutter} is too large for panel {panel_index}"
+                )
+            }
         }
     }
 }
@@ -110,6 +140,11 @@ pub struct LayoutSvgOptions {
 
     /// Panel stroke width in SVG units.
     pub stroke_width: f64,
+
+    /// Clear whitespace between neighboring panel strokes.
+    ///
+    /// Zero disables gutter rendering.
+    pub gutter: f64,
 }
 
 impl Default for LayoutSvgOptions {
@@ -117,6 +152,7 @@ impl Default for LayoutSvgOptions {
         Self {
             color: "#000000".to_string(),
             stroke_width: 3.0,
+            gutter: 0.0,
         }
     }
 }
@@ -215,12 +251,13 @@ impl PageLayout {
 
 /// Builds a page layout as a complete SVG document.
 ///
-/// Shared edges currently render as matching straight lines. Gutters and
-/// hand-drawn edge rendering will be added separately.
+/// A positive gutter insets every panel enough to preserve the requested clear
+/// whitespace between neighboring strokes.
 ///
 /// # Errors
 ///
-/// Returns an error when the stroke width or color is invalid.
+/// Returns an error when a rendering option is invalid or a gutter would
+/// collapse a panel.
 pub fn build_layout_svg(
     layout: &PageLayout,
     options: &LayoutSvgOptions,
@@ -237,23 +274,41 @@ pub fn build_layout_svg(
         });
     }
 
+    if !options.gutter.is_finite() || options.gutter < 0.0 {
+        return Err(LayoutError::InvalidGutter {
+            gutter: options.gutter,
+        });
+    }
+
     let width = layout.width;
     let height = layout.height;
     let color = options.color.as_str();
     let stroke_width = options.stroke_width;
 
-    let paths = layout
-        .panels
-        .iter()
-        .map(|panel| {
-            let path_data = closed_path_data(panel.vertices());
+    let inset_distance = (options.gutter + options.stroke_width) / 2.0;
 
-            format!(
-                r#"  <path d="{path_data}" fill="none" stroke="{color}" stroke-width="{stroke_width}" stroke-linejoin="round"/>"#
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut paths = Vec::with_capacity(layout.panels.len());
+
+    for (panel_index, panel) in layout.panels.iter().enumerate() {
+        let path_data = if options.gutter == 0.0 {
+            closed_path_data(panel.vertices())
+        } else {
+            let inset = panel
+                .inset(inset_distance)
+                .ok_or(LayoutError::GutterTooLarge {
+                    gutter: options.gutter,
+                    panel_index,
+                })?;
+
+            closed_path_data(inset.vertices())
+        };
+
+        paths.push(format!(
+        r#"  <path d="{path_data}" fill="none" stroke="{color}" stroke-width="{stroke_width}" stroke-linejoin="round"/>"#
+    ));
+    }
+
+    let paths = paths.join("\n");
 
     Ok(format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
@@ -431,6 +486,62 @@ mod tests {
         assert!(matches!(
             build_layout_svg(&layout, &options),
             Err(LayoutError::InvalidColor { color }) if color == "red"
+        ));
+    }
+
+    #[test]
+    fn positive_gutter_insets_rendered_panels() {
+        let mut layout = PageLayout::new(100, 100).unwrap();
+
+        layout
+            .split_panel(0, Point::new(0.0, 50.0), Point::new(100.0, 50.0))
+            .unwrap();
+
+        let options = LayoutSvgOptions {
+            stroke_width: 4.0,
+            gutter: 12.0,
+            ..LayoutSvgOptions::default()
+        };
+
+        let svg = build_layout_svg(&layout, &options).unwrap();
+
+        assert_eq!(svg.matches("<path ").count(), 2);
+        assert!(!svg.contains(r#"d="M 0 0"#));
+        assert!(svg.contains(r#"stroke-width="4""#));
+    }
+
+    #[test]
+    fn negative_gutter_is_rejected() {
+        let layout = PageLayout::new(100, 100).unwrap();
+
+        let options = LayoutSvgOptions {
+            gutter: -1.0,
+            ..LayoutSvgOptions::default()
+        };
+
+        assert!(matches!(
+            build_layout_svg(&layout, &options),
+            Err(LayoutError::InvalidGutter { gutter })
+                if gutter == -1.0
+        ));
+    }
+
+    #[test]
+    fn gutter_that_collapses_panel_is_rejected() {
+        let layout = PageLayout::new(100, 100).unwrap();
+
+        let options = LayoutSvgOptions {
+            stroke_width: 4.0,
+            gutter: 200.0,
+            ..LayoutSvgOptions::default()
+        };
+
+        assert!(matches!(
+            build_layout_svg(&layout, &options),
+            Err(LayoutError::GutterTooLarge {
+                gutter: 200.0,
+                panel_index: 0
+            })
         ));
     }
 }

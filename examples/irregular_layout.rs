@@ -22,7 +22,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let svg = build_layout_svg(
         &layout,
         &LayoutSvgOptions {
-            stroke_width: 4.0,
+            stroke_width: 3.0,
+            gutter: 12.0,
             ..LayoutSvgOptions::default()
         },
     )?;
