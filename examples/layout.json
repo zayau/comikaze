@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "page": {
+    "width": 600,
+    "height": 900
+  },
+  "cuts": [
+    {
+      "target": "page",
+      "start": [0, 270],
+      "end": [600, 300],
+      "negative": "top",
+      "positive": "rest"
+    },
+    {
+      "target": "rest",
+      "start": [0, 620],
+      "end": [600, 590],
+      "negative": "middle",
+      "positive": "bottom"
+    },
+    {
+      "target": "top",
+      "start": [330, 0],
+      "end": [300, 300],
+      "negative": "top_right",
+      "positive": "top_left"
+    },
+    {
+      "target": "middle",
+      "start": [200, 270],
+      "end": [230, 620],
+      "negative": "middle_right",
+      "positive": "middle_left"
+    },
+    {
+      "target": "middle_right",
+      "start": [430, 270],
+      "end": [450, 620],
+      "negative": "middle_far_right",
+      "positive": "middle_center"
+    }
+  ],
+  "render": {
+    "color": "#000000",
+    "stroke_width": 3,
+    "gutter": 12,
+    "hand_drawn": {
+      "point_spacing": 40,
+      "jitter": 1,
+      "seed": 42
+    }
+  }
+}

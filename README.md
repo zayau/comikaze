@@ -4,8 +4,9 @@ Comikaze generates hand-drawn comic-style SVG components from Rust or the
 command line.
 
 The library supports standalone comic panel frames and polygonal page layouts
-with gutters and coordinated hand-drawn boundaries. The CLI currently exposes
-frame generation. Speech balloons and caption boxes are planned.
+with gutters and coordinated hand-drawn boundaries. The CLI supports standalone
+frames and complete layouts described by JSON. Speech balloons and caption
+boxes are planned.
 
 ## Command line
 
@@ -23,6 +24,20 @@ cargo run -- frame --seed 42 --output frame.svg
 
 Frame colors support `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, and
 `currentColor`. Supplying a seed makes the generated wobble reproducible.
+
+Generate a complete layout from a JSON specification:
+
+```console
+cargo run -- layout examples/layout.json --output layout.svg
+```
+
+Omit `--output` to print the SVG on standard output. A layout begins with one
+panel named `page`. Each ordered cut consumes its `target` panel and creates
+named `negative` and `positive` panels that later cuts can target. Reversing a
+cut's `start` and `end` points swaps those two sides.
+
+See [`examples/layout.json`](examples/layout.json) for a complete six-panel
+specification with gutters and coordinated hand-drawn rendering.
 
 ## Library
 

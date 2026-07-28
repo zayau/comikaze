@@ -38,6 +38,15 @@ pub enum Commands {
         #[arg(long)]
         seed: Option<u64>,
     },
+    /// Generate a complete page layout from a JSON specification
+    Layout {
+        /// JSON layout specification
+        input: PathBuf,
+
+        /// Output file path
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
     /// Generate a speech/thought balloon
     Balloon,
     /// Generate a caption box
