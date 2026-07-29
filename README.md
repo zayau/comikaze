@@ -22,8 +22,15 @@ Write it to a file:
 cargo run -- frame --seed 42 --output frame.svg
 ```
 
+Add an interior fill when using a frame as a box or another filled component:
+
+```console
+cargo run -- frame --width 320 --height 120 --fill '#fff8dc' --output box.svg
+```
+
 Frame colors support `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, and
-`currentColor`. Supplying a seed makes the generated wobble reproducible.
+`currentColor`. Frames are transparent unless `--fill` is supplied. Supplying
+a seed makes the generated wobble reproducible.
 
 Generate a complete layout from a JSON specification:
 
@@ -84,6 +91,7 @@ let options = FrameOptions {
     width: 300,
     height: 400,
     color: "#202020".to_string(),
+    fill: Some("#fff8dc".to_string()),
     stroke_width: 3.0,
     seed: Some(42),
 };

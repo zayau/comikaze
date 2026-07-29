@@ -25,6 +25,7 @@ fn run() -> Result<(), String> {
             width,
             height,
             color,
+            fill,
             stroke_width,
             output,
             seed,
@@ -33,6 +34,7 @@ fn run() -> Result<(), String> {
                 width,
                 height,
                 color,
+                fill,
                 stroke_width,
                 seed,
             };

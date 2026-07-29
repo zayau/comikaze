@@ -29,6 +29,11 @@ pub enum FrameError {
         /// The invalid color string.
         color: String,
     },
+    /// The fill color is not one of the supported SVG color forms.
+    InvalidFill {
+        /// The invalid fill color string.
+        fill: String,
+    },
     /// The requested dimensions cannot contain the configured stroke and jitter.
     DimensionsTooSmall {
         /// The requested width in pixels.
@@ -55,6 +60,12 @@ impl fmt::Display for FrameError {
                 write!(
                     formatter,
                     "`{color}` is not a valid color — use a hex code (#rgb, #rrggbb, #rrggbbaa) or `currentColor`"
+                )
+            }
+            Self::InvalidFill { fill } => {
+                write!(
+                    formatter,
+                    "`{fill}` is not a valid fill color — use a hex code (#rgb, #rrggbb, #rrggbbaa) or `currentColor`"
                 )
             }
             Self::DimensionsTooSmall {
@@ -87,6 +98,8 @@ pub struct FrameOptions {
     /// The stroke color as `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, or
     /// `currentColor`.
     pub color: String,
+    /// An optional interior fill color. `None` leaves the frame transparent.
+    pub fill: Option<String>,
     /// The stroke width in pixels.
     pub stroke_width: f64,
     /// An optional seed for reproducible output.
@@ -99,6 +112,7 @@ impl Default for FrameOptions {
             width: 400,
             height: 600,
             color: "#000000".to_string(),
+            fill: None,
             stroke_width: 3.0,
             seed: None,
         }
@@ -115,6 +129,9 @@ impl FrameOptions {
     pub fn validate(&self) -> Result<(), FrameError> {
         validate_frame_dimensions(self.width, self.height, self.stroke_width)?;
         validate_color(&self.color)?;
+        if let Some(fill) = &self.fill {
+            validate_fill(fill)?;
+        }
 
         Ok(())
     }
@@ -149,6 +166,24 @@ pub fn validate_color(color: &str) -> Result<(), FrameError> {
 
     Err(FrameError::InvalidColor {
         color: color.to_string(),
+    })
+}
+
+/// Validates a supported SVG fill color.
+///
+/// Accepted values are `currentColor` and three-, four-, six-, or eight-digit
+/// hexadecimal colors. Use `None` in [`FrameOptions::fill`] for no fill.
+///
+/// # Errors
+///
+/// Returns [`FrameError::InvalidFill`] when `fill` is unsupported.
+pub fn validate_fill(fill: &str) -> Result<(), FrameError> {
+    if is_valid_color(fill) {
+        return Ok(());
+    }
+
+    Err(FrameError::InvalidFill {
+        fill: fill.to_string(),
     })
 }
 
@@ -231,6 +266,7 @@ pub fn build_frame_svg(options: &FrameOptions) -> Result<String, FrameError> {
     let width = options.width;
     let height = options.height;
     let color = options.color.as_str();
+    let fill = options.fill.as_deref().unwrap_or("none");
     let stroke_width = options.stroke_width;
 
     let mut rng = make_rng(options.seed);
@@ -238,7 +274,7 @@ pub fn build_frame_svg(options: &FrameOptions) -> Result<String, FrameError> {
 
     Ok(format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
-  <path d="{path_d}" fill="none" stroke="{color}" stroke-width="{stroke_width}" stroke-linejoin="round"/>
+  <path d="{path_d}" fill="{fill}" stroke="{color}" stroke-width="{stroke_width}" stroke-linejoin="round"/>
 </svg>"#
     ))
 }
@@ -259,6 +295,7 @@ mod tests {
             width: 300,
             height: 400,
             color: "#000000".to_string(),
+            fill: None,
             stroke_width: 3.0,
             seed,
         }
@@ -355,6 +392,35 @@ mod tests {
     }
 
     #[test]
+    fn builder_uses_configured_fill() {
+        let options = FrameOptions {
+            fill: Some("#fff8dc".to_string()),
+            ..FrameOptions::default()
+        };
+
+        let svg = build_frame_svg(&options).unwrap();
+
+        assert!(svg.contains(r##"fill="#fff8dc""##));
+    }
+
+    #[test]
+    fn builder_without_fill_remains_transparent() {
+        let svg = build_frame_svg(&FrameOptions::default()).unwrap();
+
+        assert!(svg.contains(r#"fill="none""#));
+    }
+
+    #[test]
+    fn builder_rejects_unsafe_fill_input() {
+        let options = FrameOptions {
+            fill: Some("\"/><script>alert('unsafe')</script>".to_string()),
+            ..FrameOptions::default()
+        };
+
+        assert!(build_frame_svg(&options).is_err());
+    }
+
+    #[test]
     fn seeded_jitter_sequence_is_stable() {
         let mut rng = make_rng(Some(42));
 
@@ -394,6 +460,18 @@ mod tests {
         match error {
             FrameError::InvalidColor { color } => {
                 assert_eq!(color, "red");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn invalid_fill_returns_typed_error() {
+        let error = validate_fill("red").unwrap_err();
+
+        match error {
+            FrameError::InvalidFill { fill } => {
+                assert_eq!(fill, "red");
             }
             other => panic!("unexpected error: {other}"),
         }

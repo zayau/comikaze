@@ -26,6 +26,10 @@ pub enum Commands {
         #[arg(long, default_value = "#000000", value_parser = parse_color)]
         color: String,
 
+        /// Interior fill color; omit for a transparent frame
+        #[arg(long, value_parser = parse_fill)]
+        fill: Option<String>,
+
         /// Stroke width in pixels
         #[arg(long, default_value_t = 3.0, value_parser = positive_f64, allow_hyphen_values = true)]
         stroke_width: f64,
@@ -89,6 +93,12 @@ fn parse_color(s: &str) -> Result<String, String> {
     Ok(s.to_string())
 }
 
+fn parse_fill(s: &str) -> Result<String, String> {
+    frame::validate_fill(s).map_err(|error| error.to_string())?;
+
+    Ok(s.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,5 +155,17 @@ mod tests {
     fn parse_color_rejects_malformed_hex() {
         assert!(parse_color("#gggggg").is_err()); // bad characters
         assert!(parse_color("#12345").is_err()); // wrong length
+    }
+
+    #[test]
+    fn parse_fill_accepts_supported_colors() {
+        assert_eq!(parse_fill("#fff8dc"), Ok("#fff8dc".to_string()));
+        assert_eq!(parse_fill("currentColor"), Ok("currentColor".to_string()));
+    }
+
+    #[test]
+    fn parse_fill_rejects_unsupported_colors() {
+        assert!(parse_fill("white").is_err());
+        assert!(parse_fill("none").is_err());
     }
 }

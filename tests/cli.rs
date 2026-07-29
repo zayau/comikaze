@@ -42,7 +42,42 @@ fn frame_prints_svg_to_stdout() {
     assert!(stdout.contains(r#"width="400""#));
     assert!(stdout.contains(r#"height="600""#));
     assert!(stdout.contains("<path"));
+    assert!(stdout.contains(r#"fill="none""#));
     assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn frame_prints_configured_fill() {
+    let output = comikaze_command()
+        .args(["frame", "--seed", "42", "--fill", "#fff8dc"])
+        .output()
+        .expect("failed to run comikaze");
+
+    assert!(
+        output.status.success(),
+        "command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(stdout.contains(r##"fill="#fff8dc""##));
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn invalid_frame_fill_returns_clap_error() {
+    let output = comikaze_command()
+        .args(["frame", "--fill", "white"])
+        .output()
+        .expect("failed to run comikaze");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(stderr.contains("not a valid fill color"));
 }
 
 #[test]
