@@ -96,21 +96,6 @@ fn invalid_stroke_width_returns_clap_error() {
 }
 
 #[test]
-fn unfinished_command_returns_failure() {
-    let output = comikaze_command()
-        .arg("balloon")
-        .output()
-        .expect("failed to run comikaze");
-
-    assert_eq!(output.status.code(), Some(1));
-    assert!(output.stdout.is_empty());
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    assert!(stderr.contains("balloon generation is not implemented yet"));
-}
-
-#[test]
 fn frame_writes_svg_to_requested_file() {
     let output_path = unique_temp_path("frame-output", "svg");
 

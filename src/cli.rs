@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use comikaze::frame;
 use std::path::PathBuf;
 
-/// comikaze — generate comic SVG assets: panels, balloons, captions
+/// Generate hand-drawn comic panel SVGs
 #[derive(Parser)]
 #[command(name = "comikaze", version, about)]
 pub struct Cli {
@@ -59,10 +59,6 @@ pub enum Commands {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
-    /// Generate a speech/thought balloon
-    Balloon,
-    /// Generate a caption box
-    Caption,
 }
 
 fn positive_f64(s: &str) -> Result<f64, String> {

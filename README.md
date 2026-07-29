@@ -5,8 +5,9 @@ command line.
 
 The library supports standalone comic panel frames and polygonal page layouts
 with gutters and coordinated hand-drawn boundaries. The CLI supports standalone
-frames and complete layouts described by JSON. Speech balloons and caption
-boxes are planned.
+frames and complete layouts described by JSON. A filled standalone frame can
+also be used as a caption box. Exact panel-mask exports let users clip their own
+SVG artwork in Figma or another vector editor.
 
 ## Command line
 

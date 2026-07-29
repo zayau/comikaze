@@ -63,8 +63,6 @@ fn run() -> Result<(), String> {
 
             write_svg(svg, output)
         }
-        Commands::Balloon => Err("balloon generation is not implemented yet".to_string()),
-        Commands::Caption => Err("caption generation is not implemented yet".to_string()),
     }
 }
 

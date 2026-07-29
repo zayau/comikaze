@@ -1,7 +1,8 @@
 //! Generate hand-drawn comic-style SVG components.
 //!
-//! Comikaze currently provides deterministic comic panel frame generation
-//! through the [`frame`] module. Speech balloons and caption boxes are planned.
+//! Comikaze provides deterministic standalone frame generation through the
+//! [`frame`] module and irregular page generation through the [`layout`] module.
+//! Final panel contours can also be reused as masks or clipping paths.
 
 #![warn(missing_docs)]
 
