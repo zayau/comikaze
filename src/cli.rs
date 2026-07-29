@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use comikaze::frame;
 use std::path::PathBuf;
 
-/// Generate hand-drawn comic panel SVGs
+/// Generate hand-drawn comic panel frames and page layouts as SVG
 #[derive(Parser)]
 #[command(name = "comikaze", version, about)]
 pub struct Cli {

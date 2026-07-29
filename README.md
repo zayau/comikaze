@@ -1,7 +1,7 @@
 # comikaze
 
-Comikaze generates hand-drawn comic-style SVG components from Rust or the
-command line.
+Comikaze generates hand-drawn comic panel frames and complete page layouts as
+SVG, from Rust or the command line.
 
 The library supports standalone comic panel frames and polygonal page layouts
 with gutters and coordinated hand-drawn boundaries. The CLI supports standalone
