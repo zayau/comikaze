@@ -43,6 +43,14 @@ pub enum Commands {
         /// JSON layout specification
         input: PathBuf,
 
+        /// Export filled panel masks instead of frame outlines
+        #[arg(long, conflicts_with = "mask")]
+        masks: bool,
+
+        /// Export one tightly cropped panel mask
+        #[arg(long, value_name = "PANEL", conflicts_with = "masks")]
+        mask: Option<String>,
+
         /// Output file path
         #[arg(short, long)]
         output: Option<PathBuf>,

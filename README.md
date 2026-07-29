@@ -39,6 +39,40 @@ cut's `start` and `end` points swaps those two sides.
 See [`examples/layout.json`](examples/layout.json) for a complete six-panel
 specification with gutters and coordinated hand-drawn rendering.
 
+Export all final panel contours as an aligned, full-page mask overview:
+
+```console
+cargo run -- layout examples/layout.json --masks --output masks.svg
+```
+
+The mask SVG contains one independent black path per panel. Each path keeps its
+JSON panel name in both its `id` and `data-panel-name` attributes—for example,
+`panel-mask-top_right`.
+
+The full-page SVG keeps the original page viewport so all masks remain aligned.
+After importing it into Figma, ungroup the SVG and select the individual named
+panel path—not the outer SVG wrapper—before choosing **Use as mask**. Use an
+Alpha mask so the transparent page margin does not become part of the visible
+region.
+
+For a simpler Figma import, export one named panel as a tightly cropped,
+single-path SVG:
+
+```console
+cargo run -- layout examples/layout.json \
+  --mask bottom \
+  --output bottom-mask.svg
+```
+
+This removes the surrounding page margin from the SVG viewport, preventing it
+from being mistaken for the mask boundary. Because the single mask is cropped
+out of the full page, position it over the corresponding panel after importing
+it.
+
+Panel names may contain ASCII letters, digits, `-`, and `_`. The mask contours
+reuse the same gutter, inset, and coordinated hand-drawn calculations as the
+frame renderer, so they match the generated frame outlines exactly.
+
 ## Library
 
 ### Standalone frame
@@ -109,6 +143,9 @@ let svg =
 
 Shared panel boundaries reuse the same generated noise profile. This keeps
 neighboring hand-drawn edges coordinated, including at T-junctions.
+Use `build_layout_path_data(&layout, &options)` when you need the exact final
+panel contours for custom masks or clipping rather than a complete SVG
+document.
 
 ## Development
 

@@ -370,6 +370,44 @@ pub fn build_layout_svg(
     layout: &PageLayout,
     options: &LayoutSvgOptions,
 ) -> Result<String, LayoutError> {
+    let path_data = build_layout_path_data(layout, options)?;
+    let color = options.color.as_str();
+    let stroke_width = options.stroke_width;
+
+    let paths = path_data
+        .iter()
+        .map(|path_data| {
+            format!(
+                r#"  <path d="{path_data}" fill="none" stroke="{color}" stroke-width="{stroke_width}" stroke-linejoin="round"/>"#
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let width = layout.width;
+    let height = layout.height;
+
+    Ok(format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
+{paths}
+</svg>"#
+    ))
+}
+
+/// Builds the final SVG path data for every panel in layout order.
+///
+/// These are the same gutter-adjusted and optionally hand-drawn contours used
+/// by [`build_layout_svg`]. They can also be reused as filled masks or clipping
+/// paths without recalculating panel geometry.
+///
+/// # Errors
+///
+/// Returns an error when a rendering option is invalid, a gutter would
+/// collapse a panel, or a hand-drawn boundary cannot be assembled.
+pub fn build_layout_path_data(
+    layout: &PageLayout,
+    options: &LayoutSvgOptions,
+) -> Result<Vec<String>, LayoutError> {
     if !is_valid_stroke_width(options.stroke_width) {
         return Err(LayoutError::InvalidStrokeWidth {
             stroke_width: options.stroke_width,
@@ -402,11 +440,6 @@ pub fn build_layout_svg(
         }
     }
 
-    let width = layout.width;
-    let height = layout.height;
-    let color = options.color.as_str();
-    let stroke_width = options.stroke_width;
-
     let inset_distance = (options.gutter + options.stroke_width) / 2.0;
 
     let hand_drawn_state = if let Some(hand_drawn) = &options.hand_drawn {
@@ -433,10 +466,10 @@ pub fn build_layout_svg(
         None
     };
 
-    let mut paths = Vec::with_capacity(layout.panels.len());
+    let mut path_data = Vec::with_capacity(layout.panels.len());
 
     for (panel_index, panel) in layout.panels.iter().enumerate() {
-        let path_data = if let Some((graph, profiles)) = &hand_drawn_state {
+        let panel_path_data = if let Some((graph, profiles)) = &hand_drawn_state {
             if panel.inset(inset_distance).is_none() {
                 return Err(LayoutError::GutterTooLarge {
                     gutter: options.gutter,
@@ -462,18 +495,10 @@ pub fn build_layout_svg(
             closed_path_data(inset.vertices())
         };
 
-        paths.push(format!(
-        r#"  <path d="{path_data}" fill="none" stroke="{color}" stroke-width="{stroke_width}" stroke-linejoin="round"/>"#
-    ));
+        path_data.push(panel_path_data);
     }
 
-    let paths = paths.join("\n");
-
-    Ok(format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">
-{paths}
-</svg>"#
-    ))
+    Ok(path_data)
 }
 
 #[cfg(test)]
@@ -615,6 +640,35 @@ mod tests {
         assert!(svg.ends_with("</svg>"));
         assert_eq!(svg.matches("<path ").count(), 2);
         assert!(svg.contains(r#"viewBox="0 0 100 100""#));
+    }
+
+    #[test]
+    fn reusable_path_data_matches_layout_svg_contours() {
+        let mut layout = PageLayout::new(100, 100).unwrap();
+
+        layout
+            .split_panel(0, Point::new(0.0, 40.0), Point::new(100.0, 60.0))
+            .unwrap();
+
+        let options = LayoutSvgOptions {
+            stroke_width: 4.0,
+            gutter: 12.0,
+            hand_drawn: Some(HandDrawnOptions {
+                point_spacing: 20.0,
+                jitter: 2.0,
+                seed: 42,
+            }),
+            ..LayoutSvgOptions::default()
+        };
+
+        let path_data = build_layout_path_data(&layout, &options).unwrap();
+        let svg = build_layout_svg(&layout, &options).unwrap();
+
+        assert_eq!(path_data.len(), 2);
+
+        for panel_path_data in path_data {
+            assert!(svg.contains(&format!(r#"d="{panel_path_data}""#)));
+        }
     }
 
     #[test]

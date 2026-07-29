@@ -156,6 +156,92 @@ fn layout_writes_svg_to_requested_file() {
 }
 
 #[test]
+fn layout_writes_named_panel_masks() {
+    let output_path = unique_temp_path("layout-masks", "svg");
+
+    let output = comikaze_command()
+        .arg("layout")
+        .arg(example_layout_path())
+        .arg("--masks")
+        .arg("--output")
+        .arg(&output_path)
+        .output()
+        .expect("failed to run comikaze");
+
+    assert!(
+        output.status.success(),
+        "command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let svg = fs::read_to_string(&output_path).expect("mask SVG was not created");
+
+    fs::remove_file(&output_path).expect("failed to remove temporary mask SVG");
+
+    assert!(svg.starts_with("<svg"));
+    assert!(svg.contains(r#"data-comikaze-output="panel-masks""#));
+    assert_eq!(svg.matches("<path ").count(), 6);
+    assert!(svg.contains(r#"id="panel-mask-top_right""#));
+    assert!(svg.contains(r#"id="panel-mask-middle_center""#));
+    assert!(svg.contains(r#"id="panel-mask-bottom""#));
+    assert_eq!(svg.matches(r#"stroke="none""#).count(), 6);
+    assert!(output.stderr.is_empty());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout, format!("wrote {}\n", output_path.display()));
+}
+
+#[test]
+fn layout_writes_one_cropped_panel_mask() {
+    let output_path = unique_temp_path("single-layout-mask", "svg");
+
+    let output = comikaze_command()
+        .arg("layout")
+        .arg(example_layout_path())
+        .args(["--mask", "bottom"])
+        .arg("--output")
+        .arg(&output_path)
+        .output()
+        .expect("failed to run comikaze");
+
+    assert!(
+        output.status.success(),
+        "command failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let svg = fs::read_to_string(&output_path).expect("single mask SVG was not created");
+
+    fs::remove_file(&output_path).expect("failed to remove temporary single mask SVG");
+
+    assert!(svg.starts_with("<svg"));
+    assert!(svg.contains(r#"data-comikaze-output="panel-mask""#));
+    assert!(svg.contains(r#"id="panel-mask-bottom""#));
+    assert_eq!(svg.matches("<path ").count(), 1);
+    assert!(!svg.contains(r#"viewBox="0 0 600 900""#));
+    assert!(output.stderr.is_empty());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout, format!("wrote {}\n", output_path.display()));
+}
+
+#[test]
+fn layout_rejects_combined_mask_output_modes() {
+    let output = comikaze_command()
+        .arg("layout")
+        .arg(example_layout_path())
+        .args(["--masks", "--mask", "bottom"])
+        .output()
+        .expect("failed to run comikaze");
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("cannot be used with"));
+}
+
+#[test]
 fn layout_reports_context_for_unknown_panel() {
     let input_path = unique_temp_path("unknown-panel", "json");
 

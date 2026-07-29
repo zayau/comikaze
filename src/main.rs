@@ -41,12 +41,23 @@ fn run() -> Result<(), String> {
 
             write_svg(svg, output)
         }
-        Commands::Layout { input, output } => {
+        Commands::Layout {
+            input,
+            masks,
+            mask,
+            output,
+        } => {
             let json = std::fs::read_to_string(&input)
                 .map_err(|error| format!("failed to read {}: {error}", input.display()))?;
 
-            let svg = layout_input::build_svg_from_json(&json)
-                .map_err(|error| format!("invalid layout {}: {error}", input.display()))?;
+            let svg = match mask {
+                Some(panel_name) => {
+                    layout_input::build_single_mask_svg_from_json(&json, &panel_name)
+                }
+                None if masks => layout_input::build_mask_svg_from_json(&json),
+                None => layout_input::build_svg_from_json(&json),
+            }
+            .map_err(|error| format!("invalid layout {}: {error}", input.display()))?;
 
             write_svg(svg, output)
         }
